@@ -11,3 +11,8 @@ https://vrtp.ru/index.php?showtopic=15990
 
 minimized electrical/digital parts number by modding PIC firmware.
 ![Screenshot](geiger_new_20200428_1.3.png)
+
+binary firmware is geiger_f628a_8x2_X.X_YYkhz.hex
+X.X - version, YY - frequency of high voltage boost clock, depends on which inductor you used.
+i use 10kHz with 7.5mH, but it would be better to measure the voltage on the Geiger tube.
+it should be around 400V in the power supply range of 7-9V.
