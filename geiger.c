@@ -2,11 +2,12 @@
 GEIGER COUNTER final 1.0 beta
 17.06.2009
 (c) TOTHEMA software, 2009
-(x) mod 1.0 by venus, 2020
+(x) mod 1.3 by venus, 2020
 indented with: indent -kr -nut -c 40 -cd 40 -l 120 geiger.c
 */
 
 #include <htc.h>
+#include <stdint.h>
 #include "lcd.h"
 
 __CONFIG(FOSC_INTOSCIO & WDTE_OFF & PWRTE_OFF & MCLRE_ON & BOREN_OFF & LVP_OFF & CPD_OFF & CP_OFF);
@@ -19,24 +20,24 @@ __CONFIG(FOSC_INTOSCIO & WDTE_OFF & PWRTE_OFF & MCLRE_ON & BOREN_OFF & LVP_OFF &
 #define BUZZER_ON  RA3 = 1
 #define BUZZER_OFF RA3 = 0
 
-#define ALARM_RATE 50
-#define LIGHT RA2=1
-#define NOLIGHT RA2=0
-#define SCR_WIDTH 8
+#define BRIGHTNESS     640             // 0..1023
+#define BACKLIGHT_TIME   3
+
+#define ALARM_RATE  50
+#define SCR_WIDTH    8
 //#define GEIGER_TIME 75                 // 75 sec for SI29BG
 #define GEIGER_TIME 36                 // 36 sec for SBM-20
-#define TICK_LEN 6                     // sound tick len *4ms
+#define TICK_LEN     6                 // sound tick len *4ms
 
 bit c = 0;
-unsigned long int data, disp;
-volatile unsigned int count = 0, poisk = 0;
-volatile unsigned long int data2, result = 0;
+uint32_t data;
+volatile uint16_t count = 0, poisk = 0;
+volatile uint32_t data2, result = 0;
 
-const uint8_t light_time = 3;
 uint8_t light, delay = 0, old_sek;
 volatile uint8_t sek;
 
-#define BOOST_MAX_IDLE  5              // periodical boost (sec), just in case
+#define BOOST_MAX_IDLE    5            // periodical boost (sec), just in case
 #define BOOST_PACKET_LEN 60            // boost packet length (in 4msec units)
 
 volatile uint8_t alarm = 0;            // beep N times
@@ -50,12 +51,26 @@ volatile bit boost_pulse;
 volatile bit sound = 0;
 volatile uint8_t sound_timeout = 0;
 
-char text[] = "    ";
-char *q;
 uint8_t i;
 
-#define CHAR_MU 0x00
+enum {
+    SCR_RATE = 0,
+    SCR_DOSE
+} scr_mode = SCR_RATE;
+
+enum button_states {
+    PRESSED = 0,
+    RELEASED
+};
+
+volatile uint32_t dose = 0;            // total dose
+volatile uint32_t dose_sec = 0;        // time counter for dose
+volatile uint16_t keytime = 0;         // key pressed time
+volatile uint8_t misc;                 // utility value for delay4ms()
+
+#define CHAR_MU    0x00
 #define CHAR_ALARM 0x01
+#define CHAR_DOSE  0x02
 
 // *INDENT-OFF*
 
@@ -81,19 +96,97 @@ uint8_t char_alarm[8] = {
     0b00000
 };
 
+uint8_t char_dose[8] = {
+    0b00000,
+    0b11111,
+    0b01000,
+    0b00100,
+    0b00010,
+    0b00100,
+    0b01000,
+    0b11111
+};
+
 // *INDENT-ON*
+
+void print(uint32_t disp)
+{
+    static char text[] = "    ";
+    char *q = text;
+    if (disp < 2000) {
+        q += 3;
+        do {
+            i = disp % 10;
+            *q-- = '0' + i;
+            disp /= 10;
+        } while (disp);
+        while (q >= text)
+            *q-- = ' ';
+        lcd_puts(text);
+        lcd_putch(' ');
+        lcd_putch(CHAR_MU);
+    } else {
+        if (disp < 10000) {
+            i = disp / 1000;
+            *q++ = '0' + i;
+            *q++ = '.';
+            disp = (disp % 1000 + 5) / 10;
+            *q++ = '0' + disp / 10;
+            *q++ = '0' + disp % 10;
+        } else if (disp < 100000) {
+            i = disp / 1000;
+            *q++ = '0' + i / 10;
+            *q++ = '0' + i % 10;
+            *q++ = '.';
+            i = (disp % 1000 + 50) / 100;
+            *q++ = '0' + i;
+        } else {
+            disp /= 1000;
+            q += 3;
+            do {
+                i = disp % 10;
+                *q-- = '0' + i;
+                disp /= 10;
+            } while (disp);
+            while (q >= text)
+                *q-- = ' ';
+        }
+        lcd_puts(text);
+        lcd_putch(' ');
+        lcd_putch('m');
+    }
+    lcd_putch('R');
+}
+
+// make delay for cnt*4ms
+void delay4ms(uint8_t cnt)
+{
+    for (misc = 0; misc < cnt;)
+        asm("nop");
+}
+
+// setup backlight pwm (duty cycle = 0..1023)
+void pwm_set(uint16_t dc)
+{
+    CCPR1L = dc >> 2;
+    CCP1CON &= 0xcf;
+    CCP1CON |= 0x30 & (dc << 4);
+}
 
 void main(void)
 {
     static uint8_t alarm_wait = 0;     // no alarm, waiting for normal rate
+    static bit keystate, old_keystate;
 
-    TRISA = 0;                         // port A - all pins are out
+    TRISA = 0x00;                      // port A - all pins are out
     RA3 = 0;                           // stop sound
-    TRISB = 0 b00000011;               // port B - B0/B1 - in 
+
+// *INDENT-OFF*
+
+    TRISB = 0b00000011;                // port B - B0/B1 - in 
     RB2 = boost_pulse = 0;             // set boost low
     CMCON = 0x07;                      //выключение компаратора
 
-// *INDENT-OFF*
 
     INTCON = 0b11110000;
     /*
@@ -128,6 +221,18 @@ void main(void)
        TMR1CS = 0;  // t1 internal FOSC/4 source
        TMR1ON = 1;  // t1 enable
      */
+    CCP1CON = 0x0F;                    // PWM mode CCP
+    PR2 = 0xFF;                        // t2 period 255 
+    T2CON = 0b00000110;
+    /*
+       TMR2ON = 1;  // t2 on
+       T2CKPS1 = 1; // t2 prescaler 1:16
+       T2CKPS0 = 0;
+
+       tick for 4MHz = 0.25 usec
+       pwm period = (255 + 1) * 4 * 16 * 0.25usec = 4096 usec
+       pwm freq = 1 sec / 4096 usec ~= 244 Hz
+     */
 
 // *INDENT-ON*
 
@@ -139,9 +244,11 @@ void main(void)
     lcd_init();
     lcd_createChar(CHAR_MU, char_mu);
     lcd_createChar(CHAR_ALARM, char_alarm);
+    lcd_createChar(CHAR_DOSE, char_dose);
     sek = GEIGER_TIME - 1;             // GEIGER_TIME sec measure time
 
-    LIGHT;                             // light on
+    pwm_set(BRIGHTNESS);
+
     TMR0 = 6;                          // start t0, 1MHz / 16 / (256-6) = 250Hz
 
     if (!RB1)                          // button pressed
@@ -171,84 +278,91 @@ void main(void)
     while (sek > GEIGER_TIME - 5);
 
     lcd_clear();
-    light = light_time;
+    light = BACKLIGHT_TIME;
     while (1) {
-        if (!RB1) {                    // backlight on button press
-            LIGHT;
-            light = light_time;
+        if ((keystate = RB1) != old_keystate) {
+            delay4ms(3);               // anti-rattle
+            if (keystate == RB1) {
+                keytime = 0;
+                old_keystate = keystate;
+            } else
+                keystate = old_keystate;
+        }
+        if (keystate == PRESSED) {
+            // backlight on button press
+            pwm_set(BRIGHTNESS);
+            light = BACKLIGHT_TIME;
+            if (keytime >= 375) {
+                // pressed for ~2 sec - switch display mode
+                keytime = 0;
+                if (scr_mode == SCR_RATE)
+                    scr_mode = SCR_DOSE;
+                else
+                    scr_mode = SCR_RATE;
+            }
         }
         if (old_sek != sek) {          // time (sec) changed
+            // calculate rate
             if (!c)                    // first measurement
                 data = result * GEIGER_TIME / (GEIGER_TIME - 1 - sek);
             else                       // 2nd and others
                 //data = data2 * (40 + sek) / 80 + result / 2;
                 data = ((data2 * sek) / GEIGER_TIME) + result;
-
             old_sek = sek;
-
-            // 1999 uR*
-            // 2.xx mR*
-            // 22.x mR*
-            q = text;
-            //lcd_clear();
-            lcd_goto(0);
-            disp = data;
-            if (data < 2000) {
-                q += 3;
-                do {
-                    i = disp % 10;
-                    *q-- = '0' + i;
-                    disp /= 10;
-                } while (disp);
-                while (q >= text)
-                    *q-- = ' ';
-                lcd_puts(text);
-                lcd_putch(' ');
-                lcd_putch(CHAR_MU);
-            } else {
-                if (disp < 10000) {
-                    i = disp / 1000;
-                    *q++ = '0' + i;
-                    *q++ = '.';
-                    disp = (disp % 1000 + 5) / 10;
-                    *q++ = '0' + disp / 10;
-                    *q++ = '0' + disp % 10;
-                } else {
-                    i = disp / 1000;
-                    *q++ = '0' + i / 10;
-                    *q++ = '0' + i % 10;
-                    *q++ = '.';
-                    i = (disp % 1000 + 50) / 100;
-                    *q++ = '0' + i;
-                }
-                lcd_puts(text);
-                lcd_putch(' ');
-                lcd_putch('m');
+            if (scr_mode == SCR_RATE) {
+                // 1999 uR*
+                // 2.xx mR*
+                // 22.x mR*
+                //lcd_clear();
+                lcd_goto(0);
+                print(data);
+                if (data >= ALARM_RATE)
+                    lcd_putch(CHAR_ALARM);
+                else
+                    lcd_putch(' ');
+                lcd_goto(64);
+                for (i = 0; i < SCR_WIDTH; i++)
+                    if (i <= poisk)
+                        lcd_putch(255);
+                    else
+                        lcd_putch('-');
+                poisk = 0;
+            } else if (scr_mode == SCR_DOSE) {
+                lcd_goto(0);
+                // hours
+                i = dose_sec / 3600;
+                if (i > 9)
+                    lcd_putch('0' + i / 10);
+                else
+                    lcd_putch(' ');
+                lcd_putch('0' + i % 10);
+                lcd_putch(':');
+                // minutes
+                i = (dose_sec % 3600) / 60;
+                lcd_putch('0' + i / 10);
+                lcd_putch('0' + i % 10);
+                lcd_putch(':');
+                // seconds
+                i = dose_sec % 60;
+                lcd_putch('0' + i / 10);
+                lcd_putch('0' + i % 10);
+                // dose
+                lcd_goto(64);
+                lcd_putch(CHAR_DOSE);
+                print(dose * GEIGER_TIME / 3600);
             }
-            lcd_putch('R');
             if (data >= ALARM_RATE) {
-                lcd_putch(CHAR_ALARM);
                 if (sound && !alarm && !alarm_wait) {
                     alarm = 5;         // beep 5 times
                     alarm_wait = 1;
                 }
-            } else {
-                if (alarm_wait)
-                    alarm_wait = 0;
-                lcd_putch(' ');
-            }
+            } else if (alarm_wait)
+                alarm_wait = 0;
             if (alarm) {
                 BUZZER_ON;
                 sound_timeout = 60;    // beep 240ms
                 alarm--;
             }
-            lcd_goto(64);
-            for (i = 0; i < SCR_WIDTH; i++)
-                if (i <= poisk)
-                    lcd_putch(255);
-                else
-                    lcd_putch('-');
-            poisk = 0;
             // just in case - boost every 10 sec when idle
             if (!boost_perm && !boost && ++boost_idle > BOOST_MAX_IDLE) {
                 boost_idle = 0;        // reset idle timer
@@ -256,9 +370,9 @@ void main(void)
                 boost = 1;
             }
         }
-
         if (!light)
-            NOLIGHT;
+            pwm_set(0);
+
     }
 }
 
@@ -274,9 +388,16 @@ static void interrupt isr(void)
         TMR1IF = 0;
     }
     if (T0IF) {                        // timer0 int (250 Hz)
-        delay++;
-        if (delay == 249) {            // 1 sec block
+        misc++;
+        keytime++;
+        if (++delay == 249) {          // 1 sec block
             delay = 0;
+            if (dose_sec < 100 * 3600 - 1)      // max 99:59:59
+                dose_sec++;
+            else {
+                dose = 0;
+                dose_sec = 0;
+            }
             if (sek)
                 sek--;
             else {
@@ -303,6 +424,8 @@ static void interrupt isr(void)
             count++;
         if (poisk < SCR_WIDTH)
             poisk++;
+        if (dose < 9999999L * 3600 / GEIGER_TIME)
+            dose++;
         if (!boost_perm) {             // if not constant boost
             boost_idle = 0;            // reset boost idle timer
             boost_timeout = BOOST_PACKET_LEN;
