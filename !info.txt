@@ -1,0 +1,13 @@
+RB0 - input signal from geiger tube
+
+RB1 - key
+
+RA2 - light
+
+RA3 - sound
+
+
+--------
+ 014 mkR
+  ....
+--------
