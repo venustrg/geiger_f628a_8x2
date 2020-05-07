@@ -52,7 +52,7 @@ void lcd_clear(void)
 
 void lcd_puts(const char *s)
 {
-    LCD_RS = 1;                 // write characters
+    LCD_RS = 1;                        // write characters
     while (*s)
         lcd_write(*s++);
 }
@@ -61,7 +61,7 @@ void lcd_puts(const char *s)
 
 void lcd_putch(char c)
 {
-    LCD_RS = 1;                 // write characters
+    LCD_RS = 1;                        // write characters
     lcd_write(c);
 }
 
@@ -79,20 +79,31 @@ void lcd_goto(unsigned char pos)
 
 void lcd_init(void)
 {
-    LCD_RS = 0;                 // write control bytes
-    DelayMs(50);                // power on delay 15..150
-    PORTB = 0x30;               // attention! 3
+    LCD_RS = 0;                        // write control bytes
+    DelayMs(50);                       // power on delay 15..150
+    PORTB = 0x30;                      // attention! 3
     LCD_STROBE;
     DelayMs(5);
     LCD_STROBE;
     DelayUs(100);
     LCD_STROBE;
     DelayMs(5);
-    PORTB = 0x20;               // set 4 bit mode 2
+    PORTB = 0x20;                      // set 4 bit mode 2
     LCD_STROBE;
     DelayUs(40);
-    lcd_write(0x28);            // 4 bit mode, 1/16 duty, 5x8 font
-    lcd_write(0x08);            // display off
-    lcd_write(0x0C);            // display on, blink curson off (F)
-    lcd_write(0x06);            // entry mode
+    lcd_write(0x28);                   // 4 bit mode, 1/16 duty, 5x8 font
+    lcd_write(0x08);                   // display off
+    lcd_write(0x0C);                   // display on, blink curson off (F)
+    lcd_write(0x06);                   // entry mode
+}
+
+void lcd_createChar(uint8_t location, uint8_t charmap[])
+{
+    location &= 0x7;                   // we only have 8 locations 0-7
+    LCD_RS = 0;
+    lcd_write(LCD_SETCGRAMADDR | (location << 3));
+    for (uint8_t i = 0; i < 8; i++) {
+        LCD_RS = 1;
+        lcd_write(charmap[i]);
+    }
 }
