@@ -10,3 +10,4 @@ discussion board:
 https://vrtp.ru/index.php?showtopic=15990
 
 minimized electrical/digital parts number by modding PIC firmware.
+![Screenshot](geiger_new_20200428_1.3.png)
