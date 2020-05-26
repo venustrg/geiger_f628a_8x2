@@ -28,6 +28,7 @@ __CONFIG(FOSC_INTOSCIO & WDTE_OFF & PWRTE_OFF & MCLRE_ON & BOREN_OFF & LVP_OFF &
 //#define GEIGER_TIME 75                 // 75 sec for SI29BG
 #define GEIGER_TIME 36                 // 36 sec for SBM-20
 #define TICK_LEN     6                 // sound tick len *4ms
+#define SOUND_ADDR 0x00                // sound enable byte address it eeprom
 
 bit c = 0;
 uint32_t data;
@@ -48,7 +49,7 @@ volatile uint8_t boost_timeout = 0;    // boost packet len (x 4ms)
 volatile uint8_t boost_idle = 0;       // periodic boost when no geiger pulses
 volatile bit boost_pulse;
 
-volatile bit sound = 0;
+volatile uint8_t sound = 0;
 volatile uint8_t sound_timeout = 0;
 
 uint8_t i;
@@ -251,10 +252,15 @@ void main(void)
 
     TMR0 = 6;                          // start t0, 1MHz / 16 / (256-6) = 250Hz
 
-    if (!RB1)                          // button pressed
-        sound = 0;                     // start w/o sound
-    else
-        sound = 1;                     // start w/ sound
+    if ((sound = EEPROM_READ(SOUND_ADDR)) > 1)
+        sound = 1;
+
+    if (!RB1) {
+
+        // button pressed
+        sound = 1 - sound;             // invert sound
+        EEPROM_WRITE(SOUND_ADDR, sound);
+    }
 
     lcd_goto(0);
     lcd_puts("GEiGER");
