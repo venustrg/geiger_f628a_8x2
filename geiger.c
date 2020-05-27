@@ -2,7 +2,7 @@
 GEIGER COUNTER final 1.0 beta
 17.06.2009
 (c) TOTHEMA software, 2009
-(x) mod 1.3 by venus, 2020
+(x) mod 1.31 by venus, 2020
 indented with: indent -kr -nut -c 40 -cd 40 -l 120 geiger.c
 */
 
@@ -13,8 +13,8 @@ indented with: indent -kr -nut -c 40 -cd 40 -l 120 geiger.c
 __CONFIG(FOSC_INTOSCIO & WDTE_OFF & PWRTE_OFF & MCLRE_ON & BOREN_OFF & LVP_OFF & CPD_OFF & CP_OFF);
 
 // fb - 29/14.5, fa - 27.6/13.8, f4 = 20.6/10.3, f3 = 20 / 9.99
-//#define T1L 0xf8                       // t1 div for ~28kHz / 14kHz boost
-#define T1L 0xf3                       // t1 div for ~20kHz / 10kHz boost
+#define T1L 0xf8                       // t1 div for ~28kHz / 14kHz boost
+//#define T1L 0xf3                       // t1 div for ~20kHz / 10kHz boost
 #define T1H 0xff                       // 65536 - (250000 / 20000 == 13) = 65523/0xfff3
 
 #define BUZZER_ON  RA3 = 1
