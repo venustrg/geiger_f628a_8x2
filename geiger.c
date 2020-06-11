@@ -2,7 +2,7 @@
 GEIGER COUNTER final 1.0 beta
 17.06.2009
 (c) TOTHEMA software, 2009
-(x) mod 1.31 by venus, 2020
+(x) mod 1.32 by venus, 2020
 indented with: indent -kr -nut -c 40 -cd 40 -l 120 geiger.c
 */
 
@@ -200,10 +200,10 @@ void main(void)
        INTF = 0;    // ext int flag
        RFIF = 0
      */
-    OPTION_REG = 0b00000011;
+    OPTION_REG = 0b01000011;
     /*
        nRBPU = 0;   // pullup on PB0/PB1 (def)
-       INTEDG = 0;  // RB0/int on falling edge
+       INTEDG = 1;  // RB0/int on rising edge
        T0CS = 0;    // t0 internal source
        T0SE = 0;
        PSA = 0;     // select t0 div (1 -- wdt)
