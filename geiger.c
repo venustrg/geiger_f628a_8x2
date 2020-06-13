@@ -2,7 +2,7 @@
 GEIGER COUNTER final 1.0 beta
 17.06.2009
 (c) TOTHEMA software, 2009
-(x) mod 1.32 by venus, 2020
+(x) mod 1.33 by venus, 2020
 indented with: indent -kr -nut -c 40 -cd 40 -l 120 geiger.c
 */
 
@@ -20,8 +20,8 @@ __CONFIG(FOSC_INTOSCIO & WDTE_OFF & PWRTE_OFF & MCLRE_ON & BOREN_OFF & LVP_OFF &
 #define BUZZER_ON  RA3 = 1
 #define BUZZER_OFF RA3 = 0
 
-#define BRIGHTNESS     640             // 0..1023
-#define BACKLIGHT_TIME   3
+#define BRIGHTNESS     720             // 0..1023
+#define BACKLIGHT_TIME   3             // backlight time, sec
 
 #define ALARM_RATE  50
 #define SCR_WIDTH    8
@@ -35,7 +35,8 @@ uint32_t data;
 volatile uint16_t count = 0, poisk = 0;
 volatile uint32_t data2, result = 0;
 
-uint8_t light, delay = 0, old_sek;
+uint8_t delay = 0, old_sek;
+volatile uint16_t light;
 volatile uint8_t sek;
 
 #define BOOST_MAX_IDLE    5            // periodical boost (sec), just in case
@@ -284,7 +285,7 @@ void main(void)
     while (sek > GEIGER_TIME - 5);
 
     lcd_clear();
-    light = BACKLIGHT_TIME;
+    light = BACKLIGHT_TIME * 250;
     while (1) {
         if ((keystate = RB1) != old_keystate) {
             delay4ms(3);               // anti-rattle
@@ -376,9 +377,6 @@ void main(void)
                 boost = 1;
             }
         }
-        if (!light)
-            pwm_set(0);
-
     }
 }
 
@@ -415,9 +413,10 @@ static void interrupt isr(void)
             }
             result += count;           // current result
             count = 0;                 // zero count for next second
-            if (light)
-                light--;               // count backlight time
         }
+        if (light)
+            if (!--light)
+                pwm_set(0);
         if (!boost_perm && boost && !--boost_timeout)
             boost = 0;
         if ((sound || alarm) && sound_timeout && !--sound_timeout)
