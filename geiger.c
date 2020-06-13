@@ -298,7 +298,7 @@ void main(void)
         if (keystate == PRESSED) {
             // backlight on button press
             pwm_set(BRIGHTNESS);
-            light = BACKLIGHT_TIME;
+            light = BACKLIGHT_TIME * 250;
             if (keytime >= 375) {
                 // pressed for ~2 sec - switch display mode
                 keytime = 0;
