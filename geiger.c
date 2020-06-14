@@ -13,8 +13,8 @@ indented with: indent -kr -nut -c 40 -cd 40 -l 120 geiger.c
 __CONFIG(FOSC_INTOSCIO & WDTE_OFF & PWRTE_OFF & MCLRE_ON & BOREN_OFF & LVP_OFF & CPD_OFF & CP_OFF);
 
 // fb - 29/14.5, fa - 27.6/13.8, f4 = 20.6/10.3, f3 = 20 / 9.99
-#define T1L 0xf8                       // t1 div for ~28kHz / 14kHz boost
-//#define T1L 0xf3                       // t1 div for ~20kHz / 10kHz boost
+//#define T1L 0xf8                       // t1 div for ~28kHz / 14kHz boost
+#define T1L 0xf3                       // t1 div for ~20kHz / 10kHz boost
 #define T1H 0xff                       // 65536 - (250000 / 20000 == 13) = 65523/0xfff3
 
 #define BUZZER_ON  RA3 = 1
@@ -35,9 +35,9 @@ uint32_t data;
 volatile uint16_t count = 0, poisk = 0;
 volatile uint32_t data2, result = 0;
 
-uint8_t delay = 0, old_sek;
+uint8_t delay = 0, old_sec;
 volatile uint16_t light;
-volatile uint8_t sek;
+volatile uint8_t sec;
 
 #define BOOST_MAX_IDLE    5            // periodical boost (sec), just in case
 #define BOOST_PACKET_LEN 60            // boost packet length (in 4msec units)
@@ -247,7 +247,7 @@ void main(void)
     lcd_createChar(CHAR_MU, char_mu);
     lcd_createChar(CHAR_ALARM, char_alarm);
     lcd_createChar(CHAR_DOSE, char_dose);
-    sek = GEIGER_TIME - 1;             // GEIGER_TIME sec measure time
+    sec = GEIGER_TIME - 1;             // GEIGER_TIME sec measure time
 
     pwm_set(BRIGHTNESS);
 
@@ -267,7 +267,7 @@ void main(void)
     lcd_puts("GEiGER");
     lcd_goto(64);
     lcd_puts("C0UNtER");
-    while (sek > GEIGER_TIME - 3);
+    while (sec > GEIGER_TIME - 3);
 
     lcd_clear();
     if (!RB1) {                        // button not pressed
@@ -282,17 +282,20 @@ void main(void)
         lcd_puts("S0UNd 0N");
     else
         lcd_puts("SilENt");
-    while (sek > GEIGER_TIME - 5);
+    while (sec > GEIGER_TIME - 5);
 
     lcd_clear();
     light = BACKLIGHT_TIME * 250;
     while (1) {
+        // keystate changed?
         if ((keystate = RB1) != old_keystate) {
             delay4ms(3);               // anti-rattle
             if (keystate == RB1) {
+                // same state after delay
                 keytime = 0;
                 old_keystate = keystate;
             } else
+                // changed state after delay - just rattle, ignore
                 keystate = old_keystate;
         }
         if (keystate == PRESSED) {
@@ -300,22 +303,23 @@ void main(void)
             pwm_set(BRIGHTNESS);
             light = BACKLIGHT_TIME * 250;
             if (keytime >= 375) {
-                // pressed for ~2 sec - switch display mode
-                keytime = 0;
+                // pressed for ~1.5 sec - switch display mode
                 if (scr_mode == SCR_RATE)
                     scr_mode = SCR_DOSE;
                 else
                     scr_mode = SCR_RATE;
+                keytime = 0;
+                old_sec = sec + 1; // force redraw
             }
         }
-        if (old_sek != sek) {          // time (sec) changed
+        if (old_sec != sec) {          // time (sec) changed
             // calculate rate
             if (!c)                    // first measurement
-                data = result * GEIGER_TIME / (GEIGER_TIME - 1 - sek);
+                data = result * GEIGER_TIME / (GEIGER_TIME - 1 - sec);
             else                       // 2nd and others
-                //data = data2 * (40 + sek) / 80 + result / 2;
-                data = ((data2 * sek) / GEIGER_TIME) + result;
-            old_sek = sek;
+                //data = data2 * (40 + sec) / 80 + result / 2;
+                data = ((data2 * sec) / GEIGER_TIME) + result;
+            old_sec = sec;
             if (scr_mode == SCR_RATE) {
                 // 1999 uR*
                 // 2.xx mR*
@@ -402,10 +406,10 @@ static void interrupt isr(void)
                 dose = 0;
                 dose_sec = 0;
             }
-            if (sek)
-                sek--;
+            if (sec)
+                sec--;
             else {
-                sek = GEIGER_TIME - 1; // start new measurement loop
+                sec = GEIGER_TIME - 1; // start new measurement loop
                 if (!c)
                     c = 1;
                 data2 = result;        // store old result
