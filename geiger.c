@@ -2,7 +2,7 @@
 GEIGER COUNTER final 1.0 beta
 17.06.2009
 (c) TOTHEMA software, 2009
-(x) mod 1.33 by venus, 2020
+(x) mod 1.34 by venus, 2020
 indented with: indent -kr -nut -c 40 -cd 40 -l 120 geiger.c
 */
 
@@ -398,7 +398,7 @@ static void interrupt isr(void)
     if (T0IF) {                        // timer0 int (250 Hz)
         misc++;
         keytime++;
-        if (++delay == 249) {          // 1 sec block
+        if (++delay == 250) {          // 1 sec block
             delay = 0;
             if (dose_sec < 100 * 3600 - 1)      // max 99:59:59
                 dose_sec++;
