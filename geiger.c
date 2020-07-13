@@ -2,15 +2,20 @@
 GEIGER COUNTER final 1.0 beta
 17.06.2009
 (c) TOTHEMA software, 2009
-(x) mod 1.34 by venus, 2020
+(x) mod by venus, 2020
 indented with: indent -kr -nut -c 40 -cd 40 -l 120 geiger.c
 */
+
+#define VERSION "1.34"
 
 #include <htc.h>
 #include <stdint.h>
 #include "lcd.h"
 
 __CONFIG(FOSC_INTOSCIO & WDTE_OFF & PWRTE_OFF & MCLRE_ON & BOREN_OFF & LVP_OFF & CPD_OFF & CP_OFF);
+
+#define TIME_BASE 250 // base T0 timer (Hz)
+#define TIME_CORR  -6 // time correction (T0 ticks per sec at real freq)
 
 // fb - 29/14.5, fa - 27.6/13.8, f4 = 20.6/10.3, f3 = 20 / 9.99
 //#define T1L 0xf8                       // t1 div for ~28kHz / 14kHz boost
@@ -251,7 +256,7 @@ void main(void)
 
     pwm_set(BRIGHTNESS);
 
-    TMR0 = 6;                          // start t0, 1MHz / 16 / (256-6) = 250Hz
+    TMR0 = 256 - TIME_BASE; // start t0, 1MHz / 16 / (256-6) = 250Hz
 
     if ((sound = EEPROM_READ(SOUND_ADDR)) > 1)
         sound = 1;
@@ -266,7 +271,7 @@ void main(void)
     lcd_goto(0);
     lcd_puts("GEiGER");
     lcd_goto(64);
-    lcd_puts("C0UNtER");
+    lcd_puts("v"VERSION);
     while (sec > GEIGER_TIME - 3);
 
     lcd_clear();
@@ -285,7 +290,7 @@ void main(void)
     while (sec > GEIGER_TIME - 5);
 
     lcd_clear();
-    light = BACKLIGHT_TIME * 250;
+    light = BACKLIGHT_TIME * (TIME_BASE + TIME_CORR);
     while (1) {
         // keystate changed?
         if ((keystate = RB1) != old_keystate) {
@@ -301,7 +306,7 @@ void main(void)
         if (keystate == PRESSED) {
             // backlight on button press
             pwm_set(BRIGHTNESS);
-            light = BACKLIGHT_TIME * 250;
+            light = BACKLIGHT_TIME * (TIME_BASE + TIME_CORR);
             if (keytime >= 375) {
                 // pressed for ~1.5 sec - switch display mode
                 if (scr_mode == SCR_RATE)
@@ -395,10 +400,10 @@ static void interrupt isr(void)
         TMR1H = T1H;
         TMR1IF = 0;
     }
-    if (T0IF) {                        // timer0 int (250 Hz)
+    if (T0IF) {                        // timer0 int (TIME_BASE Hz)
         misc++;
         keytime++;
-        if (++delay == 250) {          // 1 sec block
+        if (++delay == TIME_BASE + TIME_CORR) {          // 1 sec block
             delay = 0;
             if (dose_sec < 100 * 3600 - 1)      // max 99:59:59
                 dose_sec++;
@@ -425,7 +430,7 @@ static void interrupt isr(void)
             boost = 0;
         if ((sound || alarm) && sound_timeout && !--sound_timeout)
             BUZZER_OFF;                // stop sound / tick
-        TMR0 = 6;
+	TMR0 = 256 - TIME_BASE; // start t0, 1MHz / 16 / (256-6) = 250Hz
         T0IF = 0;
     }
     if (INTF) {                        // irq from geiger
