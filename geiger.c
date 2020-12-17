@@ -6,7 +6,7 @@ GEIGER COUNTER final 1.0 beta
 indented with: indent -kr -nut -c 40 -cd 40 -l 120 geiger.c
 */
 
-#define VERSION "1.34"
+#define VERSION "1.35"
 
 #include <htc.h>
 #include <stdint.h>
@@ -14,8 +14,8 @@ indented with: indent -kr -nut -c 40 -cd 40 -l 120 geiger.c
 
 __CONFIG(FOSC_INTOSCIO & WDTE_OFF & PWRTE_OFF & MCLRE_ON & BOREN_OFF & LVP_OFF & CPD_OFF & CP_OFF);
 
-#define TIME_BASE 250 // base T0 timer (Hz)
-#define TIME_CORR  -6 // time correction (T0 ticks per sec at real freq)
+#define TIME_BASE 250                  // base T0 timer (Hz)
+#define TIME_CORR  -6                  // time correction (T0 ticks per sec at real freq)
 
 // fb - 29/14.5, fa - 27.6/13.8, f4 = 20.6/10.3, f3 = 20 / 9.99
 //#define T1L 0xf8                       // t1 div for ~28kHz / 14kHz boost
@@ -26,7 +26,7 @@ __CONFIG(FOSC_INTOSCIO & WDTE_OFF & PWRTE_OFF & MCLRE_ON & BOREN_OFF & LVP_OFF &
 #define BUZZER_OFF RA3 = 0
 
 #define BRIGHTNESS     720             // 0..1023
-#define BACKLIGHT_TIME   3             // backlight time, sec
+#define BACKLIGHT_TIME   3 * (TIME_BASE + TIME_CORR)    // backlight time, 3 sec
 
 #define ALARM_RATE  50
 #define SCR_WIDTH    8
@@ -41,6 +41,7 @@ volatile uint16_t count = 0, poisk = 0;
 volatile uint32_t data2, result = 0;
 
 uint8_t delay = 0, old_sec;
+bit light_on = 0;
 volatile uint16_t light;
 volatile uint8_t sec;
 
@@ -65,14 +66,17 @@ enum {
     SCR_DOSE
 } scr_mode = SCR_RATE;
 
-enum button_states {
-    PRESSED = 0,
-    RELEASED
+#define KEY_PORT RB1
+
+enum key_states {
+    KEY_PRESSED = 0,
+    KEY_RELEASED
 };
 
 volatile uint32_t dose = 0;            // total dose
 volatile uint32_t dose_sec = 0;        // time counter for dose
-volatile uint16_t keytime = 0;         // key pressed time
+volatile uint16_t time_press = 0;      // time since key pressed, ticks
+volatile uint16_t time_release = 0;    // time since key released, ticks
 volatile uint8_t misc;                 // utility value for delay4ms()
 
 #define CHAR_MU    0x00
@@ -184,7 +188,6 @@ void main(void)
 {
     static uint8_t alarm_wait = 0;     // no alarm, waiting for normal rate
     static bit keystate, old_keystate;
-
     TRISA = 0x00;                      // port A - all pins are out
     RA3 = 0;                           // stop sound
 
@@ -256,13 +259,11 @@ void main(void)
 
     pwm_set(BRIGHTNESS);
 
-    TMR0 = 256 - TIME_BASE; // start t0, 1MHz / 16 / (256-6) = 250Hz
+    TMR0 = 256 - TIME_BASE;            // start t0, 1MHz / 16 / (256-6) = 250Hz
 
     if ((sound = EEPROM_READ(SOUND_ADDR)) > 1)
         sound = 1;
-
-    if (!RB1) {
-
+    if (KEY_PORT == KEY_PRESSED) {
         // button pressed
         sound = 1 - sound;             // invert sound
         EEPROM_WRITE(SOUND_ADDR, sound);
@@ -271,11 +272,11 @@ void main(void)
     lcd_goto(0);
     lcd_puts("GEiGER");
     lcd_goto(64);
-    lcd_puts("v"VERSION);
+    lcd_puts("v" VERSION);
     while (sec > GEIGER_TIME - 3);
 
     lcd_clear();
-    if (!RB1) {                        // button not pressed
+    if (KEY_PORT == KEY_PRESSED) {     // button not pressed
         lcd_puts("b00St 0N");
     } else {
         lcd_puts("StARtiNG");
@@ -290,32 +291,43 @@ void main(void)
     while (sec > GEIGER_TIME - 5);
 
     lcd_clear();
-    light = BACKLIGHT_TIME * (TIME_BASE + TIME_CORR);
+    light = BACKLIGHT_TIME;
     while (1) {
         // keystate changed?
-        if ((keystate = RB1) != old_keystate) {
-            delay4ms(3);               // anti-rattle
-            if (keystate == RB1) {
-                // same state after delay
-                keytime = 0;
+        if ((keystate = KEY_PORT) != old_keystate) {
+            delay4ms(3);               // anti-rattle pause
+            if (keystate == KEY_PORT) {
+                // same state after delay - really changed
+                if (keystate == KEY_PRESSED) {
+                    time_press = 0;
+                    if (time_release < 125) {
+                        // pressed less than 0.5s after release - switch display mode
+                        if (scr_mode == SCR_RATE)
+                            scr_mode = SCR_DOSE;
+                        else
+                            scr_mode = SCR_RATE;
+                        old_sec = sec + 1;      // force redraw
+                    } else {
+                        // just single press - turn backlight on
+                        pwm_set(BRIGHTNESS);
+                        light = BACKLIGHT_TIME;
+                    }
+                } else
+                    time_release = 0;
                 old_keystate = keystate;
             } else
                 // changed state after delay - just rattle, ignore
                 keystate = old_keystate;
         }
-        if (keystate == PRESSED) {
-            // backlight on button press
-            pwm_set(BRIGHTNESS);
-            light = BACKLIGHT_TIME * (TIME_BASE + TIME_CORR);
-            if (keytime >= 375) {
-                // pressed for ~1.5 sec - switch display mode
-                if (scr_mode == SCR_RATE)
-                    scr_mode = SCR_DOSE;
-                else
-                    scr_mode = SCR_RATE;
-                keytime = 0;
-                old_sec = sec + 1; // force redraw
+        // pressed for ~1.5 sec - switch light always on/off
+        if (keystate == KEY_PRESSED && time_press >= 375) {
+            if (!(light_on = !light_on))
+                pwm_set(0);
+            else {
+                pwm_set(BRIGHTNESS);
+                light = BACKLIGHT_TIME;
             }
+            time_press = 0;
         }
         if (old_sec != sec) {          // time (sec) changed
             // calculate rate
@@ -402,8 +414,11 @@ static void interrupt isr(void)
     }
     if (T0IF) {                        // timer0 int (TIME_BASE Hz)
         misc++;
-        keytime++;
-        if (++delay == TIME_BASE + TIME_CORR) {          // 1 sec block
+        if (time_press < 2500)         // 10 sec max
+            time_press++;
+        if (time_release < 2500)       // 10 sec max
+            time_release++;
+        if (++delay == TIME_BASE + TIME_CORR) { // 1 sec block
             delay = 0;
             if (dose_sec < 100 * 3600 - 1)      // max 99:59:59
                 dose_sec++;
@@ -423,14 +438,14 @@ static void interrupt isr(void)
             result += count;           // current result
             count = 0;                 // zero count for next second
         }
-        if (light)
-            if (!--light)
-                pwm_set(0);
+        // light isn't always on & light timer set && timer expired
+        if (!light_on && light && !--light)
+            pwm_set(0);
         if (!boost_perm && boost && !--boost_timeout)
             boost = 0;
         if ((sound || alarm) && sound_timeout && !--sound_timeout)
             BUZZER_OFF;                // stop sound / tick
-	TMR0 = 256 - TIME_BASE; // start t0, 1MHz / 16 / (256-6) = 250Hz
+        TMR0 = 256 - TIME_BASE;        // start t0, 1MHz / 16 / (256-6) = 250Hz
         T0IF = 0;
     }
     if (INTF) {                        // irq from geiger
