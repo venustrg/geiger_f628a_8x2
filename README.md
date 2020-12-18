@@ -17,4 +17,5 @@ binary firmware is geiger_f628a_8x2_X.X_YYkhz.hex, where X.X - version, YY - fre
 - key pressed on startup (when display shows "geiger counter") - switch sound on/off (stored to EEPROM);
 - key pressed when "geiger counter" disappears - high voltage boost will run constantly;
 - short keypress - turn on backlight for 3 sec;
-- long (>1.5 sec) keypress - switch rate/dose display.
+- double keypress - switch rate/dose display.;
+- long (>1.5 sec) keypress - turn on/off permanent backlight.

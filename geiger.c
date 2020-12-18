@@ -33,6 +33,7 @@ __CONFIG(FOSC_INTOSCIO & WDTE_OFF & PWRTE_OFF & MCLRE_ON & BOREN_OFF & LVP_OFF &
 //#define GEIGER_TIME 75                 // 75 sec for SI29BG
 #define GEIGER_TIME 36                 // 36 sec for SBM-20
 #define TICK_LEN     6                 // sound tick len *4ms
+#define BEEP_LEN    24                 // sound tick len *4ms
 #define SOUND_ADDR 0x00                // sound enable byte address it eeprom
 
 bit c = 0;
@@ -326,6 +327,10 @@ void main(void)
             else {
                 pwm_set(BRIGHTNESS);
                 light = BACKLIGHT_TIME;
+            }
+            if (sound && !alarm && !sound_timeout) {    // sound enabled and not running
+                BUZZER_ON;             // sound tick after geiger pulse
+                sound_timeout = BEEP_LEN;
             }
             time_press = 0;
         }
