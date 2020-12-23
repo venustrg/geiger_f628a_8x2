@@ -125,6 +125,7 @@ void print(uint32_t disp)
 {
     static char text[] = "    ";
     char *q = text;
+    char unit = 'm';
     if (disp < 2000) {
         q += 3;
         do {
@@ -134,9 +135,7 @@ void print(uint32_t disp)
         } while (disp);
         while (q >= text)
             *q-- = ' ';
-        lcd_puts(text);
-        lcd_putch(' ');
-        lcd_putch(CHAR_MU);
+        unit = CHAR_MU;
     } else {
         if (disp < 10000) {
             i = disp / 1000;
@@ -163,10 +162,10 @@ void print(uint32_t disp)
             while (q >= text)
                 *q-- = ' ';
         }
-        lcd_puts(text);
-        lcd_putch(' ');
-        lcd_putch('m');
     }
+    lcd_puts(text);
+    lcd_putch(' ');
+    lcd_putch(unit);
     lcd_putch('R');
 }
 
